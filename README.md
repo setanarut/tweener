@@ -32,3 +32,9 @@ fn main() {
 }
 
 ```
+
+## Easing functions
+
+See https://easings.net/
+
+<img width="1440" height="825" alt="funcs" src="https://github.com/user-attachments/assets/c3f6140c-862f-49c2-8084-f529099b0409" />
