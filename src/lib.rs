@@ -1,13 +1,15 @@
 #![doc = include_str!("../README.md")]
 
-/// `f32` version of the [`tweener`](crate) crate.
-pub mod f32;
+#[cfg(test)]
+mod test;
 
 use std::time::Duration;
 
 /// Interpolates a value from `begin` to `end` over `duration` using the easing function `func`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Tween {
+    /// Current interpolated value.
+    pub value: f64,
     /// Starting value of the tween.
     pub begin: f64,
     /// Target value of the tween.
@@ -18,8 +20,6 @@ pub struct Tween {
     pub func: Easing,
     /// When `true`, the tween plays back in the opposite direction on reaching the end instead of finishing.
     pub yoyo: bool,
-    /// Current interpolated value.
-    pub value: f64,
     /// Time elapsed so far in the current run.
     pub time: Duration,
     /// Time left over after `time` passes `duration` in the last update, carried into the next cycle or step.
@@ -32,12 +32,12 @@ impl Tween {
     /// Creates a new tween from `begin` to `end` over `duration` using the easing function `func`.
     pub fn new(begin: f64, end: f64, duration: Duration, func: Easing, yoyo: bool) -> Self {
         Self {
+            value: begin,
             begin,
             end,
             duration,
             func,
             yoyo,
-            value: begin,
             time: Duration::ZERO,
             overflow: Duration::ZERO,
             reversed: false,
@@ -501,106 +501,4 @@ fn out_in_bounce(t: f64, b: f64, c: f64, d: f64) -> f64 {
 fn calculate_pas(c: f64, d: f64) -> (f64, f64, f64) {
     let p = d * 0.3;
     (p, c, p / 4.0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    fn new_and_change() {
-        let tween = Tween::new(2.0, 8.0, Duration::from_secs(10), Easing::Linear, false);
-        assert_eq!(tween.value, 2.0);
-        assert_eq!(tween.change(), 6.0);
-        assert!(!tween.is_finished());
-    }
-
-    #[test]
-    fn set_time_updates_value_and_overflow() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, false);
-
-        tween.set_time(Duration::from_secs(5));
-        assert_eq!(tween.value, 5.0);
-
-        tween.set_time(Duration::from_secs(12));
-        assert_eq!(tween.value, 10.0);
-        assert_eq!(tween.overflow, Duration::from_secs(2));
-        assert!(tween.is_finished());
-    }
-
-    #[test]
-    fn reversed_update_counts_down() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, false);
-        tween.reversed = true;
-        tween.set_time(Duration::from_secs(5));
-
-        tween.update(Duration::from_secs(2));
-        assert_eq!(tween.time, Duration::from_secs(3));
-        assert_eq!(tween.value, 3.0);
-
-        tween.update(Duration::from_secs(4));
-        assert_eq!(tween.time, Duration::ZERO);
-        assert_eq!(tween.overflow, Duration::from_secs(1));
-        assert!(tween.is_finished());
-    }
-
-    #[test]
-    fn yoyo_reverses_at_the_end() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, true);
-
-        tween.update(Duration::from_secs(12));
-        assert!(tween.reversed);
-        assert_eq!(tween.time, Duration::from_secs(8));
-        assert_eq!(tween.value, 8.0);
-    }
-    #[test]
-    fn set_time_exact_end_has_no_overflow() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, false);
-        tween.set_time(Duration::from_secs(10));
-        assert_eq!(tween.value, 10.0);
-        assert_eq!(tween.overflow, Duration::ZERO);
-        assert!(tween.is_finished());
-    }
-
-    #[test]
-    fn reversed_finish_sets_begin_value() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, false);
-        tween.reversed = true;
-        tween.set_time(Duration::from_secs(5));
-        tween.update(Duration::from_secs(6)); // 5 sn'den 6 sn düşer, 1 sn taşar
-        assert_eq!(tween.time, Duration::ZERO);
-        assert_eq!(tween.value, 0.0);
-        assert_eq!(tween.overflow, Duration::from_secs(1));
-        assert!(tween.is_finished());
-    }
-
-    #[test]
-    fn yoyo_exact_end_flips_without_overflow() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, true);
-        tween.update(Duration::from_secs(10));
-        assert!(tween.reversed);
-        assert_eq!(tween.time, Duration::from_secs(10));
-        assert_eq!(tween.value, 10.0);
-        assert_eq!(tween.overflow, Duration::ZERO);
-        assert!(!tween.is_finished());
-    }
-
-    #[test]
-    fn yoyo_multiple_flips_in_one_update() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, true);
-        tween.update(Duration::from_secs(25)); // ileri, geri, tekrar ileri
-        assert!(!tween.reversed);
-        assert_eq!(tween.time, Duration::from_secs(5));
-        assert_eq!(tween.value, 5.0);
-        assert_eq!(tween.overflow, Duration::ZERO);
-    }
-
-    #[test]
-    fn zero_duration_yoyo_does_not_hang() {
-        let mut tween = Tween::new(1.0, 5.0, Duration::ZERO, Easing::Linear, true);
-        tween.update(Duration::from_secs(1));
-        assert_eq!(tween.value, 5.0);
-        assert!(tween.is_finished());
-    }
 }
