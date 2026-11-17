@@ -8,7 +8,7 @@
 - Optional `serde` feature enables serialization and deserialization of the `Tween` struct (useful for games). Enable it in `Cargo.toml` with `features = ["serde"]`.
 - Yoyo animation feature
 - Animation durations use the `std::time::Duration` type (easy-to-read code).
-- The `f32` submodule can be used for the f32 `Tween` type. `use tweener::f32::*;`
+- Generic over `f32` and `f64` (via `num-traits`), defaults to `f64`
 
 ## Quick start
 
