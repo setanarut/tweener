@@ -7,9 +7,12 @@ edition = "2024"
 description = "One-dimensional tweening library."
 repository = "https://github.com/setanarut/tweener"
 license = "MIT"
+changelog = "CHANGELOG.md"
 
 [dependencies]
+num-traits = "0.2.19"
 serde = { version = "1.0.229", features = ["derive"], optional = true }
+
 [features]
 default = []
 serde = ["dep:serde"]

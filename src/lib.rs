@@ -1,25 +1,42 @@
 #![doc = include_str!("../README.md")]
 
-/// `f32` version of the [`tweener`](crate) crate.
-pub mod f32;
+#[cfg(test)]
+mod test;
 
+use std::f64::consts::PI;
 use std::time::Duration;
 
+use num_traits::{Float, NumCast};
+
+/// Converts an `f64` constant into the generic float type.
+#[inline]
+fn lit<T: Float>(v: f64) -> T {
+    <T as NumCast>::from(v).unwrap()
+}
+
+/// Converts a [`Duration`] into seconds as the generic float type.
+#[inline]
+fn secs<T: Float>(d: Duration) -> T {
+    lit(d.as_secs_f64())
+}
+
 /// Interpolates a value from `begin` to `end` over `duration` using the easing function `func`.
+///
+/// Generic over the float type (`f32` or `f64`); defaults to `f64`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Tween {
+pub struct Tween<T = f64> {
+    /// Current interpolated value.
+    pub value: T,
     /// Starting value of the tween.
-    pub begin: f64,
+    pub begin: T,
     /// Target value of the tween.
-    pub end: f64,
+    pub end: T,
     /// Total time the tween takes to go from `begin` to `end`.
     pub duration: Duration,
     /// Easing function that shapes the progress curve.
     pub func: Easing,
     /// When `true`, the tween plays back in the opposite direction on reaching the end instead of finishing.
     pub yoyo: bool,
-    /// Current interpolated value.
-    pub value: f64,
     /// Time elapsed so far in the current run.
     pub time: Duration,
     /// Time left over after `time` passes `duration` in the last update, carried into the next cycle or step.
@@ -28,16 +45,16 @@ pub struct Tween {
     pub reversed: bool,
 }
 
-impl Tween {
+impl<T: Float> Tween<T> {
     /// Creates a new tween from `begin` to `end` over `duration` using the easing function `func`.
-    pub fn new(begin: f64, end: f64, duration: Duration, func: Easing, yoyo: bool) -> Self {
+    pub fn new(begin: T, end: T, duration: Duration, func: Easing, yoyo: bool) -> Self {
         Self {
+            value: begin,
             begin,
             end,
             duration,
             func,
             yoyo,
-            value: begin,
             time: Duration::ZERO,
             overflow: Duration::ZERO,
             reversed: false,
@@ -58,16 +75,16 @@ impl Tween {
             self.overflow = Duration::ZERO;
             self.time = current;
             self.value = self.func.apply(
-                self.time.as_secs_f64(),
+                secs(self.time),
                 self.begin,
                 self.change(),
-                self.duration.as_secs_f64(),
+                secs(self.duration),
             );
         }
     }
 
     /// Returns the total distance between `begin` and `end`.
-    pub fn change(&self) -> f64 {
+    pub fn change(&self) -> T {
         self.end - self.begin
     }
 
@@ -112,9 +129,8 @@ impl Tween {
     }
 }
 
-// Eeasing functions
+// Easing functions
 
-use std::f64::consts::PI;
 const BACK_S: f64 = 1.70158;
 
 /// The enum that holds the easing methods allows the [`Tween`] struct to be serialized.
@@ -165,7 +181,7 @@ pub enum Easing {
 }
 
 impl Easing {
-    pub(crate) fn apply(self, t: f64, b: f64, c: f64, d: f64) -> f64 {
+    pub(crate) fn apply<T: Float>(self, t: T, b: T, c: T, d: T) -> T {
         use Easing::*;
         match self {
             Linear => linear(t, b, c, d),
@@ -213,394 +229,291 @@ impl Easing {
     }
 }
 
-fn linear(t: f64, b: f64, c: f64, d: f64) -> f64 {
+type EaseFn<T> = fn(T, T, T, T) -> T;
+
+/// Shared shape of every `OutIn*` easing: the first half plays `out`, the second half plays `inn`.
+fn out_in<T: Float>(t: T, b: T, c: T, d: T, out: EaseFn<T>, inn: EaseFn<T>) -> T {
+    let two = lit::<T>(2.0);
+    if t < d / two {
+        return out(t * two, b, c / two, d);
+    }
+    inn((t * two) - d, b + c / two, c / two, d)
+}
+
+fn linear<T: Float>(t: T, b: T, c: T, d: T) -> T {
     c * t / d + b
 }
 
-fn in_quad(t: f64, b: f64, c: f64, d: f64) -> f64 {
+fn in_quad<T: Float>(t: T, b: T, c: T, d: T) -> T {
     c * (t / d).powi(2) + b
 }
 
-fn out_quad(t: f64, b: f64, c: f64, d: f64) -> f64 {
+fn out_quad<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let two = lit::<T>(2.0);
     let t = t / d;
-    -c * t * (t - 2.0) + b
+    -c * t * (t - two) + b
 }
 
-fn in_out_quad(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    let t = t / d * 2.0;
-    if t < 1.0 {
-        return c / 2.0 * t.powi(2) + b;
+fn in_out_quad<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let (one, two) = (T::one(), lit::<T>(2.0));
+    let t = t / d * two;
+    if t < one {
+        return c / two * t.powi(2) + b;
     }
-    -c / 2.0 * ((t - 1.0) * (t - 3.0) - 1.0) + b
+    -c / two * ((t - one) * (t - lit::<T>(3.0)) - one) + b
 }
 
-fn out_in_quad(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t < d / 2.0 {
-        return out_quad(t * 2.0, b, c / 2.0, d);
-    }
-    in_quad((t * 2.0) - d, b + c / 2.0, c / 2.0, d)
+fn out_in_quad<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    out_in(t, b, c, d, out_quad, in_quad)
 }
 
-fn in_cubic(t: f64, b: f64, c: f64, d: f64) -> f64 {
+fn in_cubic<T: Float>(t: T, b: T, c: T, d: T) -> T {
     c * (t / d).powi(3) + b
 }
 
-fn out_cubic(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    c * ((t / d - 1.0).powi(3) + 1.0) + b
+fn out_cubic<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    c * ((t / d - T::one()).powi(3) + T::one()) + b
 }
 
-fn in_out_cubic(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    let mut t = t / d * 2.0;
-    if t < 1.0 {
-        return c / 2.0 * t * t * t + b;
+fn in_out_cubic<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let two = lit::<T>(2.0);
+    let mut t = t / d * two;
+    if t < T::one() {
+        return c / two * t * t * t + b;
     }
-    t -= 2.0;
-    c / 2.0 * (t * t * t + 2.0) + b
+    t = t - two;
+    c / two * (t * t * t + two) + b
 }
 
-fn out_in_cubic(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t < d / 2.0 {
-        return out_cubic(t * 2.0, b, c / 2.0, d);
-    }
-    in_cubic((t * 2.0) - d, b + c / 2.0, c / 2.0, d)
+fn out_in_cubic<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    out_in(t, b, c, d, out_cubic, in_cubic)
 }
 
-fn in_quart(t: f64, b: f64, c: f64, d: f64) -> f64 {
+fn in_quart<T: Float>(t: T, b: T, c: T, d: T) -> T {
     c * (t / d).powi(4) + b
 }
 
-fn out_quart(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    -c * ((t / d - 1.0).powi(4) - 1.0) + b
+fn out_quart<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let one = T::one();
+    -c * ((t / d - one).powi(4) - one) + b
 }
 
-fn in_out_quart(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    let t = t / d * 2.0;
-    if t < 1.0 {
-        return c / 2.0 * t.powi(4) + b;
+fn in_out_quart<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let two = lit::<T>(2.0);
+    let t = t / d * two;
+    if t < T::one() {
+        return c / two * t.powi(4) + b;
     }
-    -c / 2.0 * ((t - 2.0).powi(4) - 2.0) + b
+    -c / two * ((t - two).powi(4) - two) + b
 }
 
-fn out_in_quart(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t < d / 2.0 {
-        return out_quart(t * 2.0, b, c / 2.0, d);
-    }
-    in_quart((t * 2.0) - d, b + c / 2.0, c / 2.0, d)
+fn out_in_quart<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    out_in(t, b, c, d, out_quart, in_quart)
 }
 
-fn in_quint(t: f64, b: f64, c: f64, d: f64) -> f64 {
+fn in_quint<T: Float>(t: T, b: T, c: T, d: T) -> T {
     c * (t / d).powi(5) + b
 }
 
-fn out_quint(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    c * ((t / d - 1.0).powi(5) + 1.0) + b
+fn out_quint<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    c * ((t / d - T::one()).powi(5) + T::one()) + b
 }
 
-fn in_out_quint(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    let t = t / d * 2.0;
-    if t < 1.0 {
-        return c / 2.0 * t.powi(5) + b;
+fn in_out_quint<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let two = lit::<T>(2.0);
+    let t = t / d * two;
+    if t < T::one() {
+        return c / two * t.powi(5) + b;
     }
-    c / 2.0 * ((t - 2.0).powi(5) + 2.0) + b
+    c / two * ((t - two).powi(5) + two) + b
 }
 
-fn out_in_quint(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t < d / 2.0 {
-        return out_quint(t * 2.0, b, c / 2.0, d);
-    }
-    in_quint((t * 2.0) - d, b + c / 2.0, c / 2.0, d)
+fn out_in_quint<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    out_in(t, b, c, d, out_quint, in_quint)
 }
 
-fn in_sine(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    -c * (t / d * (PI / 2.0)).cos() + c + b
+fn in_sine<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    -c * (t / d * lit::<T>(PI / 2.0)).cos() + c + b
 }
 
-fn out_sine(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    c * (t / d * (PI / 2.0)).sin() + b
+fn out_sine<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    c * (t / d * lit::<T>(PI / 2.0)).sin() + b
 }
 
-fn in_out_sine(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    -c / 2.0 * ((PI * t / d).cos() - 1.0) + b
+fn in_out_sine<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    -c / lit::<T>(2.0) * ((lit::<T>(PI) * t / d).cos() - T::one()) + b
 }
 
-fn out_in_sine(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t < d / 2.0 {
-        return out_sine(t * 2.0, b, c / 2.0, d);
-    }
-    in_sine((t * 2.0) - d, b + c / 2.0, c / 2.0, d)
+fn out_in_sine<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    out_in(t, b, c, d, out_sine, in_sine)
 }
 
-fn in_expo(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t == 0.0 {
+fn in_expo<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    if t == T::zero() {
         return b;
     }
-    c * 2.0_f64.powf(10.0 * (t / d - 1.0)) + b - c * 0.001
+    c * lit::<T>(2.0).powf(lit::<T>(10.0) * (t / d - T::one())) + b - c * lit::<T>(0.001)
 }
 
-fn out_expo(t: f64, b: f64, c: f64, d: f64) -> f64 {
+fn out_expo<T: Float>(t: T, b: T, c: T, d: T) -> T {
     if t == d {
         return b + c;
     }
-    c * 1.001 * (-(2.0_f64.powf(-10.0 * t / d)) + 1.0) + b
+    c * lit::<T>(1.001) * (-(lit::<T>(2.0).powf(lit::<T>(-10.0) * t / d)) + T::one()) + b
 }
 
-fn in_out_expo(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t == 0.0 {
+fn in_out_expo<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    if t == T::zero() {
         return b;
     }
     if t == d {
         return b + c;
     }
-    let t = t / d * 2.0;
-    if t < 1.0 {
-        return c / 2.0 * 2.0_f64.powf(10.0 * (t - 1.0)) + b - c * 0.0005;
+    let (one, two) = (T::one(), lit::<T>(2.0));
+    let t = t / d * two;
+    if t < one {
+        return c / two * two.powf(lit::<T>(10.0) * (t - one)) + b - c * lit::<T>(0.0005);
     }
-    c / 2.0 * 1.0005 * (-(2.0_f64.powf(-10.0 * (t - 1.0))) + 2.0) + b
+    c / two * lit::<T>(1.0005) * (-(two.powf(lit::<T>(-10.0) * (t - one))) + two) + b
 }
 
-fn out_in_expo(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t < d / 2.0 {
-        return out_expo(t * 2.0, b, c / 2.0, d);
+fn out_in_expo<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    out_in(t, b, c, d, out_expo, in_expo)
+}
+
+fn in_circ<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let one = T::one();
+    -c * ((one - (t / d).powi(2)).sqrt() - one) + b
+}
+
+fn out_circ<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    c * (T::one() - (t / d - T::one()).powi(2)).sqrt() + b
+}
+
+fn in_out_circ<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let (one, two) = (T::one(), lit::<T>(2.0));
+    let mut t = t / d * two;
+    if t < one {
+        return -c / two * ((one - t * t).sqrt() - one) + b;
     }
-    in_expo((t * 2.0) - d, b + c / 2.0, c / 2.0, d)
+    t = t - two;
+    c / two * ((one - t * t).sqrt() + one) + b
 }
 
-fn in_circ(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    -c * ((1.0 - (t / d).powi(2)).sqrt() - 1.0) + b
+fn out_in_circ<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    out_in(t, b, c, d, out_circ, in_circ)
 }
 
-fn out_circ(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    c * (1.0 - (t / d - 1.0).powi(2)).sqrt() + b
-}
-
-fn in_out_circ(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    let mut t = t / d * 2.0;
-    if t < 1.0 {
-        return -c / 2.0 * ((1.0 - t * t).sqrt() - 1.0) + b;
-    }
-    t -= 2.0;
-    c / 2.0 * ((1.0 - t * t).sqrt() + 1.0) + b
-}
-
-fn out_in_circ(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t < d / 2.0 {
-        return out_circ(t * 2.0, b, c / 2.0, d);
-    }
-    in_circ((t * 2.0) - d, b + c / 2.0, c / 2.0, d)
-}
-
-fn in_elastic(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t == 0.0 {
+fn in_elastic<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    if t == T::zero() {
         return b;
     }
     let mut t = t / d;
-    if t == 1.0 {
+    if t == T::one() {
         return b + c;
     }
     let (p, a, s) = calculate_pas(c, d);
-    t -= 1.0;
-    -(a * 2.0_f64.powf(10.0 * t) * ((t * d - s) * (2.0 * PI) / p).sin()) + b
+    t = t - T::one();
+    -(a * lit::<T>(2.0).powf(lit::<T>(10.0) * t) * ((t * d - s) * lit::<T>(2.0 * PI) / p).sin()) + b
 }
 
-fn out_elastic(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t == 0.0 {
+fn out_elastic<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    if t == T::zero() {
         return b;
     }
     let t = t / d;
-    if t == 1.0 {
+    if t == T::one() {
         return b + c;
     }
     let (p, a, s) = calculate_pas(c, d);
-    a * 2.0_f64.powf(-10.0 * t) * ((t * d - s) * (2.0 * PI) / p).sin() + c + b
+    a * lit::<T>(2.0).powf(lit::<T>(-10.0) * t) * ((t * d - s) * lit::<T>(2.0 * PI) / p).sin()
+        + c
+        + b
 }
 
-fn in_out_elastic(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t == 0.0 {
+fn in_out_elastic<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    if t == T::zero() {
         return b;
     }
-    let mut t = t / d * 2.0;
-    if t == 2.0 {
+    let (two, half) = (lit::<T>(2.0), lit::<T>(0.5));
+    let mut t = t / d * two;
+    if t == two {
         return b + c;
     }
     let (p, a, s) = calculate_pas(c, d);
-    t -= 1.0;
-    if t < 0.0 {
-        return -0.5 * (a * 2.0_f64.powf(10.0 * t) * ((t * d - s) * (2.0 * PI) / p).sin()) + b;
+    let tau = lit::<T>(2.0 * PI);
+    t = t - T::one();
+    if t < T::zero() {
+        return -half * (a * two.powf(lit::<T>(10.0) * t) * ((t * d - s) * tau / p).sin()) + b;
     }
-    a * 2.0_f64.powf(-10.0 * t) * ((t * d - s) * (2.0 * PI) / p).sin() * 0.5 + c + b
+    a * two.powf(lit::<T>(-10.0) * t) * ((t * d - s) * tau / p).sin() * half + c + b
 }
 
-fn out_in_elastic(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t < d / 2.0 {
-        return out_elastic(t * 2.0, b, c / 2.0, d);
-    }
-    in_elastic((t * 2.0) - d, b + c / 2.0, c / 2.0, d)
+fn out_in_elastic<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    out_in(t, b, c, d, out_elastic, in_elastic)
 }
 
-fn in_back(t: f64, b: f64, c: f64, d: f64) -> f64 {
+fn in_back<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let s = lit::<T>(BACK_S);
     let t = t / d;
-    c * t * t * ((BACK_S + 1.0) * t - BACK_S) + b
+    c * t * t * ((s + T::one()) * t - s) + b
 }
 
-fn out_back(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    let t = t / d - 1.0;
-    c * (t * t * ((BACK_S + 1.0) * t + BACK_S) + 1.0) + b
+fn out_back<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let (one, s) = (T::one(), lit::<T>(BACK_S));
+    let t = t / d - one;
+    c * (t * t * ((s + one) * t + s) + one) + b
 }
 
-fn in_out_back(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    let s = BACK_S * 1.525;
-    let mut t = t / d * 2.0;
-    if t < 1.0 {
-        return c / 2.0 * (t * t * ((s + 1.0) * t - s)) + b;
+fn in_out_back<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let (one, two) = (T::one(), lit::<T>(2.0));
+    let s = lit::<T>(BACK_S * 1.525);
+    let mut t = t / d * two;
+    if t < one {
+        return c / two * (t * t * ((s + one) * t - s)) + b;
     }
-    t -= 2.0;
-    c / 2.0 * (t * t * ((s + 1.0) * t + s) + 2.0) + b
+    t = t - two;
+    c / two * (t * t * ((s + one) * t + s) + two) + b
 }
 
-fn out_in_back(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t < (d / 2.0) {
-        return out_back(t * 2.0, b, c / 2.0, d);
-    }
-    in_back((t * 2.0) - d, b + c / 2.0, c / 2.0, d)
+fn out_in_back<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    out_in(t, b, c, d, out_back, in_back)
 }
 
-fn out_bounce(t: f64, b: f64, c: f64, d: f64) -> f64 {
+fn out_bounce<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let k = lit::<T>(7.5625);
     let mut t = t / d;
-    if t < 1.0 / 2.75 {
-        return c * (7.5625 * t * t) + b;
+    if t < lit::<T>(1.0 / 2.75) {
+        return c * (k * t * t) + b;
     }
-    if t < 2.0 / 2.75 {
-        t -= 1.5 / 2.75;
-        return c * (7.5625 * t * t + 0.75) + b;
-    } else if t < 2.5 / 2.75 {
-        t -= 2.25 / 2.75;
-        return c * (7.5625 * t * t + 0.9375) + b;
+    if t < lit::<T>(2.0 / 2.75) {
+        t = t - lit::<T>(1.5 / 2.75);
+        return c * (k * t * t + lit::<T>(0.75)) + b;
+    } else if t < lit::<T>(2.5 / 2.75) {
+        t = t - lit::<T>(2.25 / 2.75);
+        return c * (k * t * t + lit::<T>(0.9375)) + b;
     }
-    t -= 2.625 / 2.75;
-    c * (7.5625 * t * t + 0.984375) + b
+    t = t - lit::<T>(2.625 / 2.75);
+    c * (k * t * t + lit::<T>(0.984375)) + b
 }
 
-fn in_bounce(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    c - out_bounce(d - t, 0.0, c, d) + b
+fn in_bounce<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    c - out_bounce(d - t, T::zero(), c, d) + b
 }
 
-fn in_out_bounce(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t < d / 2.0 {
-        return in_bounce(t * 2.0, 0.0, c, d) * 0.5 + b;
+fn in_out_bounce<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    let (two, half) = (lit::<T>(2.0), lit::<T>(0.5));
+    if t < d / two {
+        return in_bounce(t * two, T::zero(), c, d) * half + b;
     }
-    out_bounce(t * 2.0 - d, 0.0, c, d) * 0.5 + c * 0.5 + b
+    out_bounce(t * two - d, T::zero(), c, d) * half + c * half + b
 }
 
-fn out_in_bounce(t: f64, b: f64, c: f64, d: f64) -> f64 {
-    if t < d / 2.0 {
-        return out_bounce(t * 2.0, b, c / 2.0, d);
-    }
-    in_bounce((t * 2.0) - d, b + c / 2.0, c / 2.0, d)
+fn out_in_bounce<T: Float>(t: T, b: T, c: T, d: T) -> T {
+    out_in(t, b, c, d, out_bounce, in_bounce)
 }
 
-fn calculate_pas(c: f64, d: f64) -> (f64, f64, f64) {
-    let p = d * 0.3;
-    (p, c, p / 4.0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    fn new_and_change() {
-        let tween = Tween::new(2.0, 8.0, Duration::from_secs(10), Easing::Linear, false);
-        assert_eq!(tween.value, 2.0);
-        assert_eq!(tween.change(), 6.0);
-        assert!(!tween.is_finished());
-    }
-
-    #[test]
-    fn set_time_updates_value_and_overflow() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, false);
-
-        tween.set_time(Duration::from_secs(5));
-        assert_eq!(tween.value, 5.0);
-
-        tween.set_time(Duration::from_secs(12));
-        assert_eq!(tween.value, 10.0);
-        assert_eq!(tween.overflow, Duration::from_secs(2));
-        assert!(tween.is_finished());
-    }
-
-    #[test]
-    fn reversed_update_counts_down() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, false);
-        tween.reversed = true;
-        tween.set_time(Duration::from_secs(5));
-
-        tween.update(Duration::from_secs(2));
-        assert_eq!(tween.time, Duration::from_secs(3));
-        assert_eq!(tween.value, 3.0);
-
-        tween.update(Duration::from_secs(4));
-        assert_eq!(tween.time, Duration::ZERO);
-        assert_eq!(tween.overflow, Duration::from_secs(1));
-        assert!(tween.is_finished());
-    }
-
-    #[test]
-    fn yoyo_reverses_at_the_end() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, true);
-
-        tween.update(Duration::from_secs(12));
-        assert!(tween.reversed);
-        assert_eq!(tween.time, Duration::from_secs(8));
-        assert_eq!(tween.value, 8.0);
-    }
-    #[test]
-    fn set_time_exact_end_has_no_overflow() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, false);
-        tween.set_time(Duration::from_secs(10));
-        assert_eq!(tween.value, 10.0);
-        assert_eq!(tween.overflow, Duration::ZERO);
-        assert!(tween.is_finished());
-    }
-
-    #[test]
-    fn reversed_finish_sets_begin_value() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, false);
-        tween.reversed = true;
-        tween.set_time(Duration::from_secs(5));
-        tween.update(Duration::from_secs(6)); // 5 sn'den 6 sn düşer, 1 sn taşar
-        assert_eq!(tween.time, Duration::ZERO);
-        assert_eq!(tween.value, 0.0);
-        assert_eq!(tween.overflow, Duration::from_secs(1));
-        assert!(tween.is_finished());
-    }
-
-    #[test]
-    fn yoyo_exact_end_flips_without_overflow() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, true);
-        tween.update(Duration::from_secs(10));
-        assert!(tween.reversed);
-        assert_eq!(tween.time, Duration::from_secs(10));
-        assert_eq!(tween.value, 10.0);
-        assert_eq!(tween.overflow, Duration::ZERO);
-        assert!(!tween.is_finished());
-    }
-
-    #[test]
-    fn yoyo_multiple_flips_in_one_update() {
-        let mut tween = Tween::new(0.0, 10.0, Duration::from_secs(10), Easing::Linear, true);
-        tween.update(Duration::from_secs(25)); // ileri, geri, tekrar ileri
-        assert!(!tween.reversed);
-        assert_eq!(tween.time, Duration::from_secs(5));
-        assert_eq!(tween.value, 5.0);
-        assert_eq!(tween.overflow, Duration::ZERO);
-    }
-
-    #[test]
-    fn zero_duration_yoyo_does_not_hang() {
-        let mut tween = Tween::new(1.0, 5.0, Duration::ZERO, Easing::Linear, true);
-        tween.update(Duration::from_secs(1));
-        assert_eq!(tween.value, 5.0);
-        assert!(tween.is_finished());
-    }
+fn calculate_pas<T: Float>(c: T, d: T) -> (T, T, T) {
+    let p = d * lit::<T>(0.3);
+    (p, c, p / lit::<T>(4.0))
 }
