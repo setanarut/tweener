@@ -1,19 +1,30 @@
 use std::time::Duration;
 
+/// Interpolates a value from `begin` to `end` over `duration` using the easing function `func`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Tween {
+    /// Starting value of the tween.
     pub begin: f32,
+    /// Target value of the tween.
     pub end: f32,
+    /// Total time the tween takes to go from `begin` to `end`.
     pub duration: Duration,
+    /// Easing function that shapes the progress curve.
     pub func: Easing,
+    /// When `true`, the tween plays back in the opposite direction on reaching the end instead of finishing.
     pub yoyo: bool,
+    /// Current interpolated value.
     pub value: f32,
+    /// Time elapsed so far in the current run.
     pub time: Duration,
+    /// Time left over after `time` passes `duration` in the last update, carried into the next cycle or step.
     pub overflow: Duration,
+    /// When `true`, the tween is currently playing backwards, from `end` to `begin`.
     pub reversed: bool,
 }
 
 impl Tween {
+    /// Creates a new tween from `begin` to `end` over `duration` using the easing function `func`.
     pub fn new(begin: f32, end: f32, duration: Duration, func: Easing, yoyo: bool) -> Self {
         Self {
             begin,
@@ -28,6 +39,7 @@ impl Tween {
         }
     }
 
+    /// Sets the elapsed time directly, clamping to `duration` and updating `value` and `overflow` accordingly.
     pub fn set_time(&mut self, current: Duration) {
         if current >= self.duration {
             self.overflow = current - self.duration;
@@ -49,10 +61,12 @@ impl Tween {
         }
     }
 
+    /// Returns the total distance between `begin` and `end`.
     pub fn change(&self) -> f32 {
         self.end - self.begin
     }
 
+    /// Returns `true` once the tween has reached its end point in the current playback direction.
     pub fn is_finished(&self) -> bool {
         if self.reversed {
             self.time.is_zero()
@@ -61,6 +75,7 @@ impl Tween {
         }
     }
 
+    /// Advances the tween by `dt` in the current direction, flipping direction and carrying over the remainder when `yoyo` is enabled.
     pub fn update(&mut self, dt: Duration) {
         let prev = self.time;
         if self.reversed {
@@ -97,6 +112,7 @@ impl Tween {
 use std::f32::consts::PI;
 const BACK_S: f32 = 1.70158;
 
+/// The enum that holds the easing methods allows the [`Tween`] struct to be serialized.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Easing {
