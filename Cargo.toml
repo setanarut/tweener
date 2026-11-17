@@ -1,6 +1,8 @@
 [package]
 name = "tweener"
-version = "0.1.0"
+version = "0.1.1"
+keywords = ["tween", "tweening", "animation", "gamedev", "easing"]
+categories = ["game-development", "algorithms", "science"]
 edition = "2024"
 description = "One-dimensional tweening library."
 repository = "https://github.com/setanarut/tweener"
