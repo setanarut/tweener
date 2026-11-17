@@ -1,4 +1,7 @@
+[![Crates.io](https://img.shields.io/crates/v/tweener.svg)](https://crates.io/crates/tweener)
 [![Docs](https://docs.rs/tweener/badge.svg)](https://docs.rs/tweener/latest/)
+[![License](https://img.shields.io/crates/l/tweener.svg)](https://crates.io/crates/tweener)
+[![Downloads](https://img.shields.io/crates/d/tweener.svg)](https://crates.io/crates/tweener)
 
 `tweener` is a one-dimensional tweening library.
 
